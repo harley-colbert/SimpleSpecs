@@ -1,9 +1,69 @@
 """Granular chunking helpers for section trees."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+from ..config import Settings, get_settings
 from ..models import ParsedObject, SectionNode
 
-__all__ = ["compute_section_spans"]
+__all__ = ["compute_section_spans", "load_persisted_chunks", "run_chunking"]
+
+
+def _sorted_objects(objects: list[ParsedObject]) -> list[ParsedObject]:
+    return sorted(
+        objects,
+        key=lambda obj: ((obj.page_index or 0), obj.order_index),
+    )
+
+
+def _load_parsed_objects(file_id: str, settings: Settings) -> list[ParsedObject]:
+    objects_path = Path(settings.ARTIFACTS_DIR) / file_id / "parsed" / "objects.json"
+    if not objects_path.exists():
+        raise FileNotFoundError("parsed_objects_missing")
+    with objects_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return [ParsedObject.model_validate(item) for item in payload]
+
+
+def _load_sections(file_id: str, settings: Settings) -> SectionNode:
+    sections_path = Path(settings.ARTIFACTS_DIR) / file_id / "headers" / "sections.json"
+    if not sections_path.exists():
+        raise FileNotFoundError("sections_missing")
+    with sections_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return SectionNode.model_validate(payload)
+
+
+def _persist_chunks(file_id: str, mapping: dict[str, list[str]], settings: Settings) -> None:
+    base = Path(settings.ARTIFACTS_DIR) / file_id / "chunks"
+    base.mkdir(parents=True, exist_ok=True)
+    target = base / "chunks.json"
+    with target.open("w", encoding="utf-8") as handle:
+        json.dump(mapping, handle, indent=2)
+
+
+def load_persisted_chunks(file_id: str, settings: Settings | None = None) -> dict[str, list[str]]:
+    """Load persisted chunk assignments from disk."""
+
+    settings = settings or get_settings()
+    target = Path(settings.ARTIFACTS_DIR) / file_id / "chunks" / "chunks.json"
+    if not target.exists():
+        raise FileNotFoundError("chunks_missing")
+    with target.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    return {key: list(value) for key, value in data.items()}
+
+
+def run_chunking(file_id: str, settings: Settings | None = None) -> dict[str, list[str]]:
+    """Compute and persist section chunks for the provided file identifier."""
+
+    settings = settings or get_settings()
+    objects = _load_parsed_objects(file_id, settings)
+    sections = _load_sections(file_id, settings)
+    mapping = compute_section_spans(sections, objects)
+    _persist_chunks(file_id, mapping, settings)
+    return mapping
 
 
 def compute_section_spans(root: SectionNode, objects: list[ParsedObject]) -> dict[str, list[str]]:
@@ -14,7 +74,7 @@ def compute_section_spans(root: SectionNode, objects: list[ParsedObject]) -> dic
     receive the ordered concatenation of their descendant leaf chunks.
     """
 
-    ordered_objects = list(objects)
+    ordered_objects = _sorted_objects(list(objects))
     object_index: dict[str, int] = {obj.object_id: idx for idx, obj in enumerate(ordered_objects)}
 
     leaf_nodes: list[SectionNode] = []
