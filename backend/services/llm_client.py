@@ -1,4 +1,4 @@
-"""LLM client protocol and adapter scaffolds."""
+"""LLM adapter protocol definitions for Phase 0."""
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable

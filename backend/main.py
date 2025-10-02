@@ -1,4 +1,4 @@
-"""FastAPI application factory for SimpleSpecs."""
+"""FastAPI application factory for SimpleSpecs Phase 0."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -45,7 +45,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Serve the frontend index file."""
 
         index_file = FRONTEND_DIR / "index.html"
-        return FileResponse(index_file) if index_file.exists() else FileResponse("frontend/index.html")
+        if index_file.exists():
+            return FileResponse(index_file)
+        # Fall back to the relative path for environments without the directory structure.
+        return FileResponse("frontend/index.html")
 
     @app.get("/healthz", summary="Health check")
     async def healthz() -> dict[str, str]:
