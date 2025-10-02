@@ -1,7 +1,7 @@
 """Mock file routes for Phase P0."""
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Literal, Tuple
 
 from fastapi import APIRouter
 
@@ -13,22 +13,36 @@ files_router = APIRouter(prefix="", tags=["files"])
 def _mock_objects(file_id: str) -> List[ParsedObject]:
     """Return a deterministic set of parsed objects for a file."""
 
-    return [
-        ParsedObject(
-            object_id=f"{file_id}-obj-1",
-            file_id=file_id,
-            kind="text",
-            text="Sample introduction paragraph.",
-            page_index=0,
+    objects: List[ParsedObject] = []
+    samples: List[Tuple[Literal["text", "table", "image"], str, int, List[float]]] = [
+        (
+            "text",
+            "Sample introduction paragraph.",
+            0,
+            [12.0, 48.0, 580.0, 680.0],
         ),
-        ParsedObject(
-            object_id=f"{file_id}-obj-2",
-            file_id=file_id,
-            kind="table",
-            text="Table describing requirements.",
-            page_index=1,
+        (
+            "table",
+            "Table describing requirements.",
+            1,
+            [36.0, 120.0, 560.0, 420.0],
         ),
     ]
+
+    for order, (kind, text, page_index, bbox) in enumerate(samples):
+        objects.append(
+            ParsedObject(
+                object_id=f"{file_id}-obj-{order + 1}",
+                file_id=file_id,
+                kind=kind,
+                text=text,
+                page_index=page_index,
+                bbox=bbox,
+                order_index=order,
+            )
+        )
+
+    return objects
 
 
 @files_router.get("/parsed/{file_id}", response_model=List[ParsedObject])

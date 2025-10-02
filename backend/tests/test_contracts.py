@@ -19,24 +19,34 @@ def test_models_schema() -> None:
         kind="text",
         text="example",
         page_index=0,
-        bbox=bbox,
+        bbox=[bbox.x0, bbox.y0, bbox.x1, bbox.y1],
+        order_index=0,
     )
     section = SectionNode(
         section_id="sec-root",
+        file_id="file",
         title="Root",
-        level=0,
+        depth=0,
         children=[
-            SectionNode(section_id="sec-child", title="Child", level=1, object_ids=[parsed.object_id])
+            SectionNode(
+                section_id="sec-child",
+                file_id="file",
+                title="Child",
+                depth=1,
+            )
         ],
     )
     spec = SpecItem(
         spec_id="spec-1",
+        file_id="file",
         section_id=section.section_id,
-        title="Requirement",
-        content="System shall be mockable.",
+        section_title=section.title,
+        spec_text="System shall be mockable.",
+        source_object_ids=[parsed.object_id],
     )
 
     assert parsed.kind == "text"
-    assert section.children[0].object_ids == [parsed.object_id]
-    assert spec.status == "draft"
-    assert parsed.model_dump()["bbox"]["x1"] == 10
+    assert parsed.order_index == 0
+    assert section.children[0].depth == 1
+    assert spec.source_object_ids == [parsed.object_id]
+    assert parsed.model_dump()["bbox"][2] == 10
