@@ -1,12 +1,21 @@
 # Phase P4 — Spec Extraction Loop
-**Outcome:** Per-leaf mechanical specs extracted via LLM; provenance kept; exports consistent.
+**Outcome:** Loop each granular section → prompt LLM for mechanical specs → collect SpecItem[].
+
+> **Dependency whitelist (MUST FOLLOW)**
+>
+> - Python dependencies are allowed **only** if listed in `requirements.txt` (core) or `requirements-optional.txt` (extras).
+> - You may not add/import any library that is not listed in one of those files.
+> - If a new dependency is needed, STOP and update the requirements files first (subject to review), then proceed.
+> - This whitelist is the barrier for adding libraries. No exceptions without explicit approval.
+
 
 ## Tasks
-1. Iterate leaf sections only; prompt includes section number/title and text.
-2. Retries/backoff; resumable progress; max concurrency limiter.
-3. Normalize bullets; dedup globally per file; fill `source_object_ids` minimal cover.
-4. `POST /specs/{file_id}/find` runs loop; `GET /specs/{file_id}` returns table.
-5. Frontend progress + CSV/JSON export.
+- For each section: prompt includes section number/title + text; store results with provenance.
+- Aggregate and deduplicate by source objects.
+- Return SpecItem[] and expose routes.
 
-## Acceptance
-- Idempotency across runs; deterministic table order.
+## Phase dependency allowlist
+
+**Allowed additions:** none required beyond core + P2 LLM usage.
+**Not allowed:** new parsing/ML frameworks.
+

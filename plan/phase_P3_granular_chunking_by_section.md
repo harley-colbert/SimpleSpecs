@@ -1,11 +1,21 @@
 # Phase P3 — Granular Chunking by Section
-**Outcome:** Leaf sections → one chunk each; parents aggregate children; previews shown.
+**Outcome:** Map ParsedObject[] into section/subsection chunks (one chunk per most-granular section).
+
+> **Dependency whitelist (MUST FOLLOW)**
+>
+> - Python dependencies are allowed **only** if listed in `requirements.txt` (core) or `requirements-optional.txt` (extras).
+> - You may not add/import any library that is not listed in one of those files.
+> - If a new dependency is needed, STOP and update the requirements files first (subject to review), then proceed.
+> - This whitelist is the barrier for adding libraries. No exceptions without explicit approval.
+
 
 ## Tasks
-1. Compute section spans over `ParsedObject[]` regardless of engine used (engine-agnostic).
-2. Leaf rule: 1:1 section-to-chunk; parent = ordered union of descendant chunks.
-3. `POST /chunks/{file_id}` computes/persists mapping; UI previews first N chars.
-4. Handle empty sections and overlaps robustly.
+- Build chunks using the headers tree spans.
+- Each chunk contains only its section/subsection content.
+- Deterministic ordering & reproducible IDs.
 
-## Acceptance
-- Random audits match expected region boundaries on both native and mineru fixtures.
+## Phase dependency allowlist
+
+**Allowed additions:** none (pure Python logic).
+**Not allowed:** new parsing/ML frameworks.
+

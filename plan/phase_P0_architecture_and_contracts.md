@@ -1,16 +1,27 @@
-# Phase P0 — Architecture & Contracts (UNO‑less + MinerU toggle)
-**Outcome:** Frozen contracts, endpoints, adapters; config flag for PDF engine; mocks for both engines.
+# Phase P0 — Architecture & Contracts
+**Outcome:** App skeleton, routers, models, config, mocks.
+
+> **Dependency whitelist (MUST FOLLOW)**
+>
+> - Python dependencies are allowed **only** if listed in `requirements.txt` (core) or `requirements-optional.txt` (extras).
+> - You may not add/import any library that is not listed in one of those files.
+> - If a new dependency is needed, STOP and update the requirements files first (subject to review), then proceed.
+> - This whitelist is the barrier for adding libraries. No exceptions without explicit approval.
+
 
 ## Tasks
-1. Add `PDF_ENGINE` config: `"native" | "mineru" | "auto"` with default `"native"`.
-2. Define `PdfParser` interface with `parse_pdf(file_path) -> list[ParsedObject]`.
-3. Create adapters:
-   - `NativePdfParser` (pdfplumber/pdfminer.six/PyMuPDF/pikepdf + Camelot/Tabula).
-   - `MinerUPdfParser` (MinerU JSON→ParsedObject normalizer).
-4. Router scaffolds & mock responses for ingest, parsed, headers, chunks, specs.
-5. `/system/capabilities` endpoint: detect presence of `tesseract`, `gs`, `java`, and MinerU package import.
-6. Pydantic models and OpenAPI schemas; logging and error envelope.
+- FastAPI app factory, basic routers with mocks, health checks.
+- Config with `PDF_ENGINE` (`native|mineru|auto`), MinerU flags.
+- Pydantic models for ParsedObject/Section/Spec.
+- Store scaffolding, logging, basic tests.
 
-## Acceptance
-- `GET /openapi.json` exposes all endpoints.
-- Switching `PDF_ENGINE` changes which parser is invoked (mocked).
+## Phase dependency allowlist
+
+**Allowed (core only):**
+- fastapi, uvicorn[standard], pydantic, pydantic-settings, httpx, python-multipart
+- SQLAlchemy, sqlmodel (scaffold only)
+- charset-normalizer
+- pytest (tests)
+
+**Not allowed:** Any parsing/OCR/table/MinerU libs.
+

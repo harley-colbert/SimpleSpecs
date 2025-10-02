@@ -1,25 +1,24 @@
 # Simplespecs Agents — Overview
 **Date:** 2025-10-02
 
-This package provides copy‑paste **Agent files** (prompts) for automating each phase of the UNO‑less Simplespecs plan with a MinerU toggle. Use these with ChatGPT/Codex or similar “code agent” tools.
+> **Dependency whitelist (MUST FOLLOW)**
+>
+> - Python dependencies are allowed **only** if listed in `requirements.txt` (core) or `requirements-optional.txt` (extras).
+> - You may not add/import any library that is not listed in one of those files.
+> - If a new dependency is needed, STOP and update the requirements files first (subject to review), then proceed.
+> - This whitelist is the barrier for adding libraries. No exceptions without explicit approval.
 
-## Files
-- `Agent_Overview.md` — this document.
-- `Agent_P0.md` — Phase 0 (Architecture & Contracts).
-- `Agent_P1.md` — Phase 1 (Upload & Parsing; Native + MinerU).
-- `Agent_P2.md` — Phase 2 (Header Discovery / LLM).
-- `Agent_P3.md` — Phase 3 (Granular Chunking).
-- `Agent_P4.md` — Phase 4 (Spec Extraction Loop).
-- `Agent_P5.md` — Phase 5 (QA, Export, CI).
+
+
 
 ## Inputs expected by agents
-- Plans: `plan_docs/overview.md`, `plan_docs/phase_P{N}_*.md`
+- Plans: `plan/overview.md`, `plan/phase_P{N}_*.md`
 - Final stubs: `finalstubs/finalstubs_latest.json`, `finalstubs/finalstubs_P{N}.json`
 - Repo root: your working directory should be the project root.
 
-## Global guardrails
-1. Do not create files outside `finalstubs_P{N}.json` for the target phase.
-2. Preserve exact paths and names; match function signatures from the stubs.
-3. Keep code runnable under a normal Python **venv**; **no UNO/pyuno** usage.
-4. For networked features in early phases, use **mock implementations**.
-5. Every file must have clear docstrings, type hints, and minimal working logic.
+## Hard rules
+- Only create/modify files listed for the target phase in `finalstubs_P{N}.json`.
+- Preserve exact paths and exported symbols.
+- Keep code runnable in a normal Python venv; **no UNO/pyuno**.
+- Use mocks only where the phase calls for them.
+- **Dependencies:** Only libraries listed in `requirements.txt` or `requirements-optional.txt` may be used.

@@ -1,24 +1,34 @@
-# Phase P1 — Upload & Parsing (UNO‑less with MinerU option)
-**Outcome:** Deterministic extraction to `ParsedObject[]` using the selected engine; DOCX/TXT native; OCR optional.
+# Phase P1 — Upload & Parsing (UNO-less with MinerU option)
+**Outcome:** Deterministic extraction to ParsedObject[] using selected engine; DOCX/TXT native; OCR optional.
+
+> **Dependency whitelist (MUST FOLLOW)**
+>
+> - Python dependencies are allowed **only** if listed in `requirements.txt` (core) or `requirements-optional.txt` (extras).
+> - You may not add/import any library that is not listed in one of those files.
+> - If a new dependency is needed, STOP and update the requirements files first (subject to review), then proceed.
+> - This whitelist is the barrier for adding libraries. No exceptions without explicit approval.
+
 
 ## Tasks
-1. Implement `POST /ingest`: save to `artifacts/{file_id}/source` and register file.
-2. Implement `NativePdfParser`:
-   - pdfplumber → text objs with bbox/page/order
-   - pikepdf → doc metadata, attachments
-   - PyMuPDF → images (coords, DPI) and vector objects
-   - Camelot/Tabula (select at runtime) for tables
-3. Implement `MinerUPdfParser`:
-   - Call MinerU pipeline; map its JSON to `ParsedObject[]`.
-   - Preserve page/bbox if available; create stable `order_index`.
-4. Implement selection logic:
-   - `PDF_ENGINE=native|mineru|auto`
-   - For `auto`, run native; if heuristics fail thresholds, switch to MinerU (and tag provenance).
-5. DOCX: `python-docx` + tables; mammoth as structural cross-check; docx2python for table-heavy.
-6. TXT: encoding detection; line objects with synthetic bbox=None, page=0.
-7. OCR (optional): if scanned PDF and MinerU unavailable, run `ocrmypdf` to add text layer, then re-run native.
-8. `GET /parsed/{file_id}` returns `ParsedObject[]`.
+1. POST /ingest: save to `artifacts/{file_id}/source` and register file.
+2. NativePdfParser: pdfplumber (text), pikepdf (metadata), PyMuPDF (images), Camelot/Tabula (tables).
+3. MinerUPdfParser: call MinerU pipeline and normalize to ParsedObject[].
+4. Engine selection: setting or AUTO heuristics.
+5. DOCX/TXT extractors.
+6. OCR fallback if scanned and MinerU unavailable.
+7. GET /parsed/{file_id} returns ParsedObject[].
 
-## Acceptance
-- On fixtures, both `native` and `mineru` modes produce comprehensive coverage; parity tests pass with tolerances.
-- Error paths and limits (size/type) return clear messages.
+## Phase dependency allowlist
+
+**Core add-ons permitted in this phase (to parse PDF/DOCX/TXT):**
+- PDF (native): pdfplumber, pdfminer.six, PyMuPDF, pikepdf
+- DOCX: python-docx, mammoth, docx2python
+- TXT: charset-normalizer (already core)
+
+**Optional extras (only if used & system deps available):**
+- Tables: camelot-py[base] (Ghostscript), tabula-py (Java), plus pandas, numpy, opencv-python-headless, matplotlib
+- OCR fallback: ocrmypdf (Ghostscript + Tesseract), pytesseract
+- MinerU client (toggleable): one of magic-pdf **or** mineru
+
+**Not allowed:** PyPDF2/pypdf, regex “parsers”, ad-hoc base64 test assets.
+
