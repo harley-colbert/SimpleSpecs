@@ -1,24 +1,33 @@
 """LLM client abstractions for SimpleSpecs (Phase P0 stubs)."""
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Protocol
+
+__all__ = ["LLMAdapter", "OpenRouterAdapter", "LlamaCppAdapter"]
 
 
-class LLMClient(Protocol):
-    """Protocol describing minimal LLM interaction."""
+class LLMAdapter(Protocol):
+    """Protocol describing minimal synchronous LLM interaction."""
 
-    async def generate(self, prompt: str, **kwargs: Any) -> str:
+    def generate(self, prompt: str) -> str:
         """Generate a response for the given prompt."""
 
 
-class NullLLMClient:
-    """Stub LLM client used during early phases."""
+class OpenRouterAdapter:
+    """Stub adapter representing an OpenRouter-based integration."""
 
-    async def generate(self, prompt: str, **kwargs: Any) -> str:
-        return "LLM functionality not implemented in Phase P0."
+    def generate(self, prompt: str) -> str:
+        return ""
 
 
-def get_llm_client() -> LLMClient:
-    """Return the stub LLM client."""
+class LlamaCppAdapter:
+    """Stub adapter representing a local LLaMA.cpp integration."""
 
-    return NullLLMClient()
+    def generate(self, prompt: str) -> str:
+        return ""
+
+
+def get_llm_client() -> LLMAdapter:
+    """Return the default stubbed adapter."""
+
+    return OpenRouterAdapter()
