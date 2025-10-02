@@ -1,7 +1,7 @@
-"""PDF parser abstractions and selection logic."""
+"""PDF parser abstractions and selection logic for Phase 0."""
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Optional, Protocol
 
 from backend.config import Settings
 from backend.models import ParsedObject
@@ -28,15 +28,13 @@ class MinerUPdfParser:
         return []
 
 
-def select_pdf_parser(settings: Settings, file_path: str) -> PdfParser:
-    """Select a PDF parser based on the configured engine."""
+def select_pdf_parser(settings: Settings, file_path: str) -> Optional[PdfParser]:
+    """Select a PDF parser based on the configured engine.
 
-    engine = settings.PDF_ENGINE
-    if engine == "native":
-        return NativePdfParser()
-    if engine == "mineru":
-        return MinerUPdfParser()
-    if engine == "auto":
-        return MinerUPdfParser() if settings.MINERU_ENABLED else NativePdfParser()
+    Phase 0 does not yet provide real parser wiring, so this function returns
+    ``None`` as a placeholder regardless of configuration. Later phases will
+    supply the actual adapter selection.
+    """
 
-    raise ValueError(f"Unsupported PDF engine: {engine}")
+    _ = (settings, file_path)
+    return None
