@@ -1,3 +1,5 @@
+import { MAX_TOKENS_LIMIT } from "./constants.js";
+
 export const state = {
   uploadId: null,
   objects: [],
@@ -9,7 +11,7 @@ export const state = {
   model: "",
   params: {
     temperature: 0.2,
-    max_tokens: 512,
+    max_tokens: MAX_TOKENS_LIMIT,
   },
   apiKey: "",
   baseUrl: "",

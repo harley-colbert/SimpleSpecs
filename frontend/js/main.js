@@ -20,6 +20,7 @@ import {
   resetLogs,
   markHeaderProcessed,
 } from "./state.js";
+import { MAX_TOKENS_LIMIT } from "./constants.js";
 import {
   renderHeadersTree,
   renderSidebarHeadersList,
@@ -377,7 +378,7 @@ function setupSettingsForm() {
       provider,
       model: (formData.get("model") || "").toString(),
       temperature: toNumber(formData.get("temperature"), 0.2),
-      maxTokens: toNumber(formData.get("max_tokens"), 512),
+      maxTokens: toNumber(formData.get("max_tokens"), MAX_TOKENS_LIMIT),
       apiKey: (formData.get("api_key") || "").toString(),
       baseUrl: (formData.get("base_url") || "").toString(),
     };
@@ -396,7 +397,7 @@ function setupSettingsForm() {
     provider: (response.provider || "openrouter").toString(),
     model: (response.model || "").toString(),
     temperature: typeof response.temperature === "number" ? response.temperature : 0.2,
-    maxTokens: typeof response.max_tokens === "number" ? response.max_tokens : 20000,
+    maxTokens: typeof response.max_tokens === "number" ? response.max_tokens : MAX_TOKENS_LIMIT,
     apiKey: (response.api_key || "").toString(),
     baseUrl: (response.base_url || "").toString(),
   });
@@ -428,7 +429,7 @@ function setupSettingsForm() {
       });
     settingsForm.querySelector('input[name="model"]').value = settingsData.model || "";
     settingsForm.querySelector('input[name="temperature"]').value = settingsData.temperature ?? 0.2;
-    settingsForm.querySelector('input[name="max_tokens"]').value = settingsData.maxTokens ?? 20000;
+    settingsForm.querySelector('input[name="max_tokens"]').value = settingsData.maxTokens ?? MAX_TOKENS_LIMIT;
     settingsForm.querySelector('input[name="api_key"]').value = settingsData.apiKey || "";
     settingsForm.querySelector('input[name="base_url"]').value = settingsData.baseUrl || "";
     syncProviderFields(provider);
@@ -453,6 +454,8 @@ function setupSettingsForm() {
     handleChange(true);
   });
   settingsForm.addEventListener("submit", (event) => event.preventDefault());
+
+  settingsForm.querySelector('input[name="max_tokens"]').value = MAX_TOKENS_LIMIT;
 
   const initialSettings = handleChange(false);
   lastPersistedSettings = toPayload(initialSettings);
