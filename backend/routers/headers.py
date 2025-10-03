@@ -7,9 +7,9 @@ from typing import List
 from fastapi import APIRouter, HTTPException
 
 from ..models import HeaderItem, HeadersRequest
+from ..services.documents import get_document_or_404, get_step, upsert_step
 from ..services.llm import get_provider
 from ..services.text_blocks import document_text
-from ..store import headers_path, read_jsonl, upload_objects_path, write_json
 
 router = APIRouter(prefix="/api")
 
@@ -27,7 +27,17 @@ Return ONLY the list enclosed in #headers# fencing, like:
 
 @router.post("/headers", response_model=list[HeaderItem])
 async def extract_headers(payload: HeadersRequest) -> List[HeaderItem]:
-    objects_raw = read_jsonl(upload_objects_path(payload.upload_id))
+    document = get_document_or_404(payload.upload_id)
+
+    existing_step = get_step(payload.upload_id, "headers")
+    if (
+        existing_step
+        and existing_step.status == "completed"
+        and existing_step.result is not None
+    ):
+        return [HeaderItem.model_validate(item) for item in existing_step.result]
+
+    objects_raw = document.parsed_objects or []
     if not objects_raw:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found")
 
@@ -70,5 +80,14 @@ async def extract_headers(payload: HeadersRequest) -> List[HeaderItem]:
     if not headers:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="No headers parsed")
 
-    write_json(headers_path(payload.upload_id), [header.model_dump() for header in headers])
+    upsert_step(
+        payload.upload_id,
+        name="headers",
+        result=[header.model_dump() for header in headers],
+        provider=payload.provider,
+        model=payload.model,
+        params=payload.params,
+        base_url=payload.base_url,
+        api_key_used=bool(payload.api_key),
+    )
     return headers

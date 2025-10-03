@@ -7,16 +7,18 @@ import io
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from ..store import read_json, specs_path
+from ..services.documents import get_step
 
 router = APIRouter(prefix="/api")
 
 
 @router.get("/export/specs.csv")
 async def export_specs(upload_id: str = Query(...)) -> StreamingResponse:
-    specs = read_json(specs_path(upload_id))
-    if not specs:
+    step = get_step(upload_id, "specs")
+    if not step or step.result is None:
         raise HTTPException(status_code=404, detail="No specifications available")
+
+    specs = step.result
 
     header = ["Section number", "Section name", "Specification", "Domain"]
     buffer = io.StringIO()
