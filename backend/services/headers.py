@@ -284,7 +284,7 @@ class _OpenRouterAdapter:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.0,
-            "max_tokens": 512,
+            "max_tokens": 20000,
         }
         try:
             response = httpx.post(
@@ -318,7 +318,7 @@ class _LlamaCppAdapter:
                 json={
                     "prompt": prompt,
                     "temperature": 0.0,
-                    "max_tokens": 512,
+                    "max_tokens": 20000,
                 },
                 timeout=10.0,
             )

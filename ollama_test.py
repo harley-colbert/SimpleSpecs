@@ -1,5 +1,4 @@
 import requests
-
 OLLAMA_API = "http://AA-248:11434/api/chat"
 HEADERS = {"Content-Type": "application/json"}
 # MODEL = "deepseek-r1"

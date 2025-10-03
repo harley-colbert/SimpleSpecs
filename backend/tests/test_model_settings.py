@@ -31,14 +31,14 @@ def test_model_settings_persist_between_requests(monkeypatch, tmp_path):
     assert initial.status_code == 200
     payload = initial.json()
     assert payload["provider"] == "openrouter"
-    assert payload["max_tokens"] == 512
+    assert payload["max_tokens"] == 20000
     assert "updated_at" in payload
 
     update_payload = {
         "provider": "llamacpp",
         "model": "llama-model",
         "temperature": 0.6,
-        "max_tokens": 1024,
+        "max_tokens": 20000,
         "api_key": "",
         "base_url": "http://localhost:9000",
     }
@@ -55,5 +55,5 @@ def test_model_settings_persist_between_requests(monkeypatch, tmp_path):
     assert persisted_payload["provider"] == "llamacpp"
     assert persisted_payload["model"] == "llama-model"
     assert persisted_payload["temperature"] == 0.6
-    assert persisted_payload["max_tokens"] == 1024
+    assert persisted_payload["max_tokens"] == 20000
     assert persisted_payload["base_url"] == "http://localhost:9000"

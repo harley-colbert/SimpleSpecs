@@ -396,7 +396,7 @@ function setupSettingsForm() {
     provider: (response.provider || "openrouter").toString(),
     model: (response.model || "").toString(),
     temperature: typeof response.temperature === "number" ? response.temperature : 0.2,
-    maxTokens: typeof response.max_tokens === "number" ? response.max_tokens : 512,
+    maxTokens: typeof response.max_tokens === "number" ? response.max_tokens : 20000,
     apiKey: (response.api_key || "").toString(),
     baseUrl: (response.base_url || "").toString(),
   });
@@ -428,7 +428,7 @@ function setupSettingsForm() {
       });
     settingsForm.querySelector('input[name="model"]').value = settingsData.model || "";
     settingsForm.querySelector('input[name="temperature"]').value = settingsData.temperature ?? 0.2;
-    settingsForm.querySelector('input[name="max_tokens"]').value = settingsData.maxTokens ?? 512;
+    settingsForm.querySelector('input[name="max_tokens"]').value = settingsData.maxTokens ?? 20000;
     settingsForm.querySelector('input[name="api_key"]').value = settingsData.apiKey || "";
     settingsForm.querySelector('input[name="base_url"]').value = settingsData.baseUrl || "";
     syncProviderFields(provider);

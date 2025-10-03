@@ -15,42 +15,125 @@ from ..store import headers_path, read_jsonl, upload_objects_path, write_json
 router = APIRouter(prefix="/api")
 
 _HEADERS_PROMPT = """Please show a simple numbered nested list of all headers and subheaders for this document.
-Return ONLY the list enclosed in #headers# fencing, like:
+Return ONLY the list enclosed in #headers# fencing, #headers#
 
-#headers#
-1. Top Level
-   1.1 Sub
-      1.1.1 Sub-sub
-2. Another Top
-#headers#
+
 """
 
+# ---------------------------
+# Ollama helpers
+# ---------------------------
 
 def _is_ollama_mode(provider_name: Optional[str], base_url: Optional[str]) -> bool:
-    """
-    Decide whether to use direct Ollama-style /api/chat call.
-
-    True if:
-      - provider == "ollama" (case-insensitive), OR
-      - base_url endswith "/api/chat"
-    """
+    """Use direct Ollama if provider='ollama' or base_url already points to /api/chat or /api/generate."""
     if provider_name and provider_name.lower() == "ollama":
         return True
-    if base_url and base_url.rstrip("/").endswith("/api/chat"):
-        return True
+    if base_url:
+        base = base_url.rstrip("/")
+        if base.endswith("/api/chat") or base.endswith("/api/generate"):
+            return True
     return False
 
 
-def _ollama_endpoint(base_url: str) -> str:
-    """
-    Build the Ollama /api/chat endpoint from a provided base_url.
-    If the caller gave the full /api/chat URL already, keep it.
-    Otherwise, append /api/chat.
-    """
+def _ollama_chat_url(base_url: str) -> str:
     base = base_url.rstrip("/")
-    if base.endswith("/api/chat"):
-        return base
-    return f"{base}/api/chat"
+    return base if base.endswith("/api/chat") else f"{base}/api/chat"
+
+
+def _ollama_generate_url(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    return base if base.endswith("/api/generate") else f"{base}/api/generate"
+
+
+def _flatten_messages_to_prompt(messages: List[Dict[str, str]]) -> str:
+    """Flatten chat messages into a single prompt suitable for /api/generate."""
+    parts: List[str] = []
+    for m in messages:
+        role = m.get("role", "user")
+        content = m.get("content", "")
+        parts.append(f"{role.upper()}: {content}")
+    parts.append("ASSISTANT:")
+    return "\n\n".join(parts)
+
+
+def _normalize_ollama_options(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Map OpenAI-like params to Ollama 'options' and pass-through known Ollama options.
+    - max_tokens -> num_predict
+    - temperature -> temperature
+    """
+    if not params:
+        return {}
+    options: Dict[str, Any] = {}
+
+    # Common OpenAI → Ollama mappings
+    if "max_tokens" in params:
+        options["num_predict"] = params["max_tokens"]
+    if "temperature" in params:
+        options["temperature"] = params["temperature"]
+
+    # Pass-through known Ollama options if provided
+    passthrough_keys = (
+        "num_predict", "top_k", "top_p", "presence_penalty", "frequency_penalty", "stop",
+        "repeat_penalty", "repeat_last_n", "mirostat", "mirostat_tau", "mirostat_eta"
+    )
+    for k in passthrough_keys:
+        if k in params:
+            options[k] = params[k]
+
+    return options
+
+
+def _extract_content_tolerant(data: Any) -> Optional[str]:
+    """Handle multiple valid Ollama response shapes."""
+    # /api/chat canonical
+    if isinstance(data, dict):
+        msg = data.get("message")
+        if isinstance(msg, dict):
+            c = msg.get("content")
+            if isinstance(c, str) and c.strip():
+                return c
+
+    # /api/generate canonical
+    if isinstance(data, dict):
+        c = data.get("response")
+        if isinstance(c, str) and c.strip():
+            return c
+
+    # OpenAI-like
+    if isinstance(data, dict):
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                msg = first.get("message")
+                if isinstance(msg, dict):
+                    c = msg.get("content")
+                    if isinstance(c, str) and c.strip():
+                        return c
+
+    # Older variants: messages list
+    if isinstance(data, dict):
+        msgs = data.get("messages")
+        if isinstance(msgs, list) and msgs:
+            last = msgs[-1]
+            if isinstance(last, dict):
+                c = last.get("content")
+                if isinstance(c, str) and c.strip():
+                    return c
+
+    return None
+
+
+def _strip_reasoning_tags(text: str) -> str:
+    """
+    Trim <think>...</think> blocks some reasoning models emit (e.g., deepseek-r1).
+    Keeps only the final visible answer.
+    """
+    if not text or "<think>" not in text:
+        return text
+    # Remove all <think>...</think> segments
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
 async def _chat_via_ollama(
@@ -58,82 +141,99 @@ async def _chat_via_ollama(
     base_url: str,
     model: str,
     messages: List[Dict[str, str]],
-    params: Optional[Dict[str, Any]],
+    params: Optional[Dict[str, Any]] = None,
     timeout: float = 60.0,
+    combine_to_single_prompt: bool = True,
 ) -> str:
     """
-    Direct Ollama call that mirrors the simple example in `ollama_test.py`.
-
-    Payload shape (matching your example):
-      {
-        "model": MODEL,
-        "messages": [...],
-        "stream": false,
-        ...params  # merged at the root (same as your example style)
-      }
-
-    Response shape (expected):
-      {"message": {"content": "<text>"}, ...}
+    Direct Ollama call mirroring the simple requests example.
+    - If combine_to_single_prompt=False: POST /api/chat with {"model","messages","stream":false}
+    - If combine_to_single_prompt=True:  POST /api/generate with {"model","prompt","stream":false}
+    Puts gen options under "options": {...} and parses multiple response shapes.
     """
-    url = _ollama_endpoint(base_url)
-    payload: Dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-    }
+    oheaders = {"Content-Type": "application/json", "Accept": "application/json"}
+
+    if combine_to_single_prompt:
+        url = _ollama_generate_url(base_url)
+        payload: Dict[str, Any] = {
+            "model": model,
+            "prompt": _flatten_messages_to_prompt(messages),
+            "stream": False,
+        }
+    else:
+        url = _ollama_chat_url(base_url)
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+        }
+
+    # Attach Ollama options
+    options = _normalize_ollama_options(params)
+    if options:
+        payload["options"] = {**payload.get("options", {}), **options}
+
+    # Allow extra root-level fields too (keeps parity with your test harness)
     if params:
-        # Match your example: merge params at root (not "options")
-        payload.update(params)
+        for k, v in params.items():
+            if k not in ("max_tokens",) and k not in options:
+                payload[k] = v
 
-    headers = {"Content-Type": "application/json"}
-
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        resp = await client.post(url, json=payload)
-        # Raise helpful error if Ollama returns non-2xx
+    async with httpx.AsyncClient(timeout=timeout, headers=oheaders) as client:
         try:
+            # Debug log (small snippet) for payload visibility
+            short_payload = {k: (v if k != "messages" else f"[{len(messages)} messages]") for k, v in payload.items()}
+            print(f"[headers.py] POST {url} {payload}")
+            resp = await client.post(url, json=payload)
+            print(f"[headers.py] {resp}")
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
+            
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Ollama call failed ({resp.status_code}): {resp.text}",
             ) from e
+            print(f"[headers.py] {resp}")
+        except httpx.RequestError as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Ollama connection error: {e!r}",
+            ) from e
 
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Ollama returned non-JSON: {resp.text[:1000]}",
+            )
 
-    # Primary expected path
-    try:
-        content = data["message"]["content"]
-    except (KeyError, TypeError):
-        # Graceful fallbacks if server returns a slightly different shape
-        content = None
-        if isinstance(data, dict):
-            # Some builds may still return OpenAI-like "choices"
-            choices = data.get("choices")
-            if isinstance(choices, list) and choices:
-                choice0 = choices[0]
-                if isinstance(choice0, dict):
-                    msg = choice0.get("message")
-                    if isinstance(msg, dict):
-                        content = msg.get("content")
-
-    if not isinstance(content, str) or not content.strip():
+    content = _extract_content_tolerant(data)
+    if not content or not isinstance(content, str) or not content.strip():
+        snippet = str(data)
+        if len(snippet) > 2000:
+            snippet = snippet[:2000] + " ... [truncated]"
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Ollama returned unexpected response shape: {data}",
+            detail=f"Ollama returned unexpected response shape: {snippet}",
         )
-    return content.strip()
 
+    return _strip_reasoning_tags(content.strip())
+
+# ---------------------------
+# Endpoint
+# ---------------------------
 
 @router.post("/headers", response_model=list[HeaderItem])
 async def extract_headers(payload: HeadersRequest) -> List[HeaderItem]:
     """
     Extract a numbered nested list of headers/subheaders from an uploaded document.
 
-    If `payload.provider == "ollama"` (or base_url ends with `/api/chat`), the endpoint will
-    call Ollama directly using the same payload style as `ollama_test.py`.
+    If `payload.provider == "ollama"` (or base_url ends with `/api/chat` or `/api/generate`), the endpoint will
+    call Ollama directly using a payload compatible with your `ollama_test.py` style.
     Otherwise it will use the configured LLM provider via `get_provider(...).chat(messages)`.
     """
-    # --- Load document objects/text ---
+    # Load document
     objects_raw = read_jsonl(upload_objects_path(payload.upload_id))
     if not objects_raw:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found")
@@ -142,39 +242,33 @@ async def extract_headers(payload: HeadersRequest) -> List[HeaderItem]:
     if not document.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document is empty")
 
-    # --- Build the messages array (works for both OpenAI/llama.cpp and Ollama) ---
+    # Build chat
     messages: List[Dict[str, str]] = [
         {"role": "system", "content": "You analyze engineering specification documents."},
-        {
-            "role": "user",
-            "content": f"{_HEADERS_PROMPT}\n\nDocument contents:\n{document}",
-        },
+        {"role": "user", "content": f"{_HEADERS_PROMPT}\n\nDocument contents:\n{document}"},
     ]
 
-    # --- Choose call path: Ollama-direct vs Provider abstraction ---
+    # Decide path
     use_ollama = _is_ollama_mode(payload.provider, payload.base_url)
 
     if use_ollama:
+        print("[headers.py] Using Ollama mode")
         if not payload.base_url:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="base_url is required for Ollama mode",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="base_url is required for Ollama mode")
         if not payload.model:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="model is required for Ollama mode",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="model is required for Ollama mode")
 
-        # Direct call to Ollama /api/chat with your example payload shape
+        # If caller explicitly wants single-string prompt, allow via params flag
+        combine = bool(getattr(payload, "combine_to_single_prompt", False) or (payload.params or {}).get("combine_to_single_prompt"))
         response_text = await _chat_via_ollama(
             base_url=payload.base_url,
             model=payload.model,
             messages=messages,
             params=payload.params,
+            timeout=float((payload.params or {}).get("timeout", 60.0)),
+            combine_to_single_prompt=combine,
         )
     else:
-        # Use your existing provider abstraction for llama.cpp OpenAI-compatible, OpenRouter, etc.
         provider = get_provider(
             payload.provider,
             model=payload.model,
@@ -184,30 +278,31 @@ async def extract_headers(payload: HeadersRequest) -> List[HeaderItem]:
         )
         response_text = await provider.chat(messages)
 
-    # --- Parse fenced #headers# block ---
+    # Parse fenced #headers# block
     match = re.search(r"#headers#(.*?)#headers#", response_text, re.DOTALL | re.IGNORECASE)
     if not match:
+        # Provide a useful preview to debug prompts
+        preview = response_text[:800] + (" ... [truncated]" if len(response_text) > 800 else "")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="LLM returned unexpected format (missing #headers# fence)",
+            detail=f"LLM returned unexpected format (missing #headers# fence). Preview: {preview}",
         )
 
     content = match.group(1)
-    headers: list[HeaderItem] = []
+    headers: List[HeaderItem] = []
     for raw_line in content.splitlines():
         line = raw_line.strip()
         if not line:
             continue
-        match_line = re.match(r"^(\d+(?:\.\d+)*)[\s\-\.]+(.+)$", line)
-        if not match_line:
+        mline = re.match(r"^(\d+(?:\.\d+)*)[\s\-\.]+(.+)$", line)
+        if not mline:
             continue
-        section_number = match_line.group(1).strip()
-        section_name = match_line.group(2).strip()
+        section_number = mline.group(1).strip()
+        section_name = mline.group(2).strip()
         headers.append(HeaderItem(section_number=section_number, section_name=section_name))
 
     if not headers:
-        # If the LLM responded but with no usable lines, 422 is also a fair choice.
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="No headers parsed")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="No headers parsed from fenced block")
 
-    write_json(headers_path(payload.upload_id), [header.model_dump() for header in headers])
+    write_json(headers_path(payload.upload_id), [h.model_dump() for h in headers])
     return headers
