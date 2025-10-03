@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from .db import init_db
 from .routers import export, health, headers, specs, upload
 
 app = FastAPI(title="SimpleSpecs", version="1.0.0")
@@ -18,6 +19,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+init_db()
 
 app.include_router(health.router)
 app.include_router(upload.router)
