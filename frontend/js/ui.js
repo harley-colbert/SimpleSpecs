@@ -1,62 +1,3 @@
-const ROW_HEIGHT = 72;
-
-export function initializeVirtualList(container) {
-  container.innerHTML = "";
-  const inner = document.createElement("div");
-  inner.className = "virtual-list-inner";
-  container.appendChild(inner);
-
-  let items = [];
-
-  function render() {
-    const totalHeight = items.length * ROW_HEIGHT;
-    inner.style.height = `${totalHeight}px`;
-    const scrollTop = container.scrollTop;
-    const viewportHeight = container.clientHeight;
-    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 5);
-    const endIndex = Math.min(items.length, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + 5);
-
-    inner.innerHTML = "";
-    for (let index = startIndex; index < endIndex; index += 1) {
-      const item = items[index];
-      const row = document.createElement("div");
-      row.className = "virtual-row";
-      row.style.top = `${index * ROW_HEIGHT}px`;
-      const badge = document.createElement("span");
-      badge.className = "type-badge";
-      badge.textContent = item.type;
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.appendChild(badge);
-      const page = document.createElement("span");
-      page.textContent = item.page ? `Page ${item.page}` : "Page N/A";
-      meta.appendChild(page);
-
-      const content = document.createElement("div");
-      content.className = "content";
-      content.textContent = item.content;
-
-      row.appendChild(meta);
-      row.appendChild(content);
-      inner.appendChild(row);
-    }
-  }
-
-  container.addEventListener("scroll", render);
-
-  return {
-    setItems(newItems) {
-      items = Array.isArray(newItems) ? newItems : [];
-      container.scrollTop = 0;
-      render();
-    },
-  };
-}
-
-export function updateObjectCount(element, count) {
-  element.textContent = String(count);
-}
-
 function buildTree(headers) {
   const root = {};
   headers.forEach((header) => {
@@ -76,37 +17,82 @@ function buildTree(headers) {
   return root;
 }
 
-function renderTreeNode(node, activeSection, onSelect) {
+function createHeaderButton(header, { activeSection, processedSections, onSelect } = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "header-node";
+  if (activeSection === header.section_number) {
+    button.classList.add("active");
+  }
+
+  const status = document.createElement("span");
+  status.className = "header-status";
+  const key = header?.section_number ? String(header.section_number) : null;
+  if (key && processedSections?.has(key)) {
+    status.classList.add("header-status--complete");
+    status.textContent = "✓";
+  }
+  button.appendChild(status);
+
+  const label = document.createElement("span");
+  label.className = "header-label";
+  label.textContent = `${header.section_number} ${header.section_name}`;
+  button.appendChild(label);
+
+  button.addEventListener("click", () => onSelect?.(header));
+  return button;
+}
+
+function renderTreeNode(node, activeSection, processedSections, onSelect) {
   if (!node.children) return document.createDocumentFragment();
   const ul = document.createElement("ul");
   const entries = Array.from(node.children.entries()).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
   entries.forEach(([, child]) => {
     const li = document.createElement("li");
     if (child.header) {
-      li.textContent = `${child.header.section_number} ${child.header.section_name}`;
-      li.dataset.section = child.header.section_number;
-      if (activeSection === child.header.section_number) {
-        li.classList.add("active");
-      }
-      li.addEventListener("click", () => onSelect?.(child.header));
+      const button = createHeaderButton(child.header, { activeSection, processedSections, onSelect });
+      li.appendChild(button);
     }
     if (child.children && child.children.size > 0) {
-      li.appendChild(renderTreeNode(child, activeSection, onSelect));
+      li.appendChild(renderTreeNode(child, activeSection, processedSections, onSelect));
     }
     ul.appendChild(li);
   });
   return ul;
 }
 
-export function renderHeadersTree(container, headers, { onSelect, activeSection } = {}) {
+export function renderHeadersTree(container, headers, { onSelect, activeSection, processedSections } = {}) {
   container.innerHTML = "";
   if (!headers?.length) {
     container.textContent = "No headers extracted yet.";
     return;
   }
   const tree = buildTree(headers);
-  const fragment = renderTreeNode(tree, activeSection, onSelect);
+  const fragment = renderTreeNode(tree, activeSection, processedSections, onSelect);
   container.appendChild(fragment);
+}
+
+export function renderSidebarHeadersList(container, headers, { onSelect, activeSection, processedSections } = {}) {
+  container.innerHTML = "";
+  if (!headers?.length) {
+    container.textContent = "No headers extracted yet.";
+    return;
+  }
+
+  const list = document.createElement("ul");
+  list.className = "headers-list";
+
+  headers
+    .slice()
+    .sort((a, b) => a.section_number.localeCompare(b.section_number, undefined, { numeric: true }))
+    .forEach((header) => {
+      const item = document.createElement("li");
+      const button = createHeaderButton(header, { activeSection, processedSections, onSelect });
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+
+  container.appendChild(list);
 }
 
 export function updateSectionPreview(element, text) {

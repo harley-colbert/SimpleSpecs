@@ -4,6 +4,7 @@ export const state = {
   headers: [],
   specs: [],
   sectionTexts: new Map(),
+  headerProgress: new Map(),
   provider: "openrouter",
   model: "",
   params: {
@@ -21,6 +22,7 @@ export function setUpload({ uploadId, objectCount, objects }) {
   state.headers = [];
   state.specs = [];
   state.sectionTexts = new Map();
+  state.headerProgress = new Map();
 }
 
 export function setObjects(objects) {
@@ -29,10 +31,26 @@ export function setObjects(objects) {
 
 export function setHeaders(headers) {
   state.headers = headers;
+  state.headerProgress = new Map();
+  headers.forEach((header) => {
+    if (header?.section_number) {
+      const key = String(header.section_number);
+      state.headerProgress.set(key, false);
+    }
+  });
 }
 
 export function setSpecs(specs) {
   state.specs = specs;
+}
+
+export function markHeaderProcessed(sectionNumber) {
+  if (!sectionNumber) return;
+  if (!state.headerProgress) {
+    state.headerProgress = new Map();
+  }
+  const key = String(sectionNumber);
+  state.headerProgress.set(key, true);
 }
 
 export function setSectionText(sectionNumber, text) {

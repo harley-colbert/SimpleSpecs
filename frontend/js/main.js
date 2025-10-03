@@ -16,11 +16,11 @@ import {
   updateSettings,
   addLog,
   resetLogs,
+  markHeaderProcessed,
 } from "./state.js";
 import {
-  initializeVirtualList,
-  updateObjectCount,
   renderHeadersTree,
+  renderSidebarHeadersList,
   updateSectionPreview,
   renderSpecsTable,
   setActiveTab,
@@ -33,10 +33,10 @@ import {
 const fileInput = document.getElementById("file-input");
 const dropZone = document.getElementById("drop-zone");
 const uploadButton = document.getElementById("upload-button");
-const objectsListEl = document.getElementById("objects-list");
-const objectCountEl = document.getElementById("object-count");
 const headersTreeEl = document.getElementById("headers-tree");
 const sectionPreviewEl = document.getElementById("section-preview");
+const sidebarHeadersEl = document.getElementById("sidebar-headers");
+const headersCountEl = document.getElementById("headers-count");
 const specsTableBody = document.querySelector("#specs-table tbody");
 const specsSearch = document.getElementById("specs-search");
 const sortSelect = document.getElementById("sort-select");
@@ -52,8 +52,6 @@ const exportCsvBtn = document.getElementById("export-csv");
 const toggleSettingsBtn = document.getElementById("toggle-settings");
 const settingsPanel = document.getElementById("settings-panel");
 const settingsForm = document.getElementById("settings-form");
-
-const virtualList = initializeVirtualList(objectsListEl);
 
 let selectedFile = null;
 let activeTab = "headers";
@@ -122,22 +120,48 @@ function computeSectionText(header) {
   return lines.slice(start, end).join("\n").trim();
 }
 
-function refreshObjects(objects = []) {
-  virtualList.setItems(objects);
-  updateObjectCount(objectCountEl, objects.length);
+function getProcessedSections() {
+  const processed = new Set();
+  state.headerProgress?.forEach((isComplete, section) => {
+    if (isComplete) processed.add(section);
+  });
+  return processed;
+}
+
+function selectHeader(header, { refresh = true } = {}) {
+  if (!header) return;
+  activeSection = header.section_number;
+  const preview = state.sectionTexts.get(header.section_number) || computeSectionText(header);
+  setSectionText(header.section_number, preview);
+  updateSectionPreview(sectionPreviewEl, preview);
+  if (refresh) {
+    refreshHeaders();
+  }
 }
 
 function refreshHeaders() {
+  const processedSections = getProcessedSections();
+  if (!state.headers?.length) {
+    activeSection = null;
+  }
+
   renderHeadersTree(headersTreeEl, state.headers, {
     activeSection,
-    onSelect(header) {
-      activeSection = header.section_number;
-      const preview = state.sectionTexts.get(header.section_number) || computeSectionText(header);
-      setSectionText(header.section_number, preview);
-      updateSectionPreview(sectionPreviewEl, preview);
-      refreshHeaders();
-    },
+    processedSections,
+    onSelect: (header) => selectHeader(header),
   });
+
+  renderSidebarHeadersList(sidebarHeadersEl, state.headers, {
+    activeSection,
+    processedSections,
+    onSelect: (header) => selectHeader(header),
+  });
+
+  if (!activeSection) {
+    updateSectionPreview(sectionPreviewEl, "Select a header to preview text.");
+  }
+
+  headersCountEl.textContent = String(state.headers?.length || 0);
 }
 
 function refreshSpecs() {
@@ -148,10 +172,8 @@ function refreshSpecs() {
 }
 
 async function loadObjects(uploadId) {
-  const { items, total } = await fetchObjects(uploadId, 1, 1000);
+  const { items } = await fetchObjects(uploadId, 1, 1000);
   setObjects(items);
-  refreshObjects(items);
-  updateObjectCount(objectCountEl, total);
 }
 
 async function handleUpload() {
@@ -167,6 +189,7 @@ async function handleUpload() {
     log(`Parsed ${response.object_count} objects (upload ${response.upload_id}).`);
     await loadObjects(response.upload_id);
     setUpload({ uploadId: response.upload_id, objects: state.objects });
+    refreshHeaders();
     updateProgress(progressFill, 40);
     log("Document ready. Proceed with header extraction.");
     updateProgress(progressFill, 50);
@@ -205,8 +228,7 @@ async function handleHeaders() {
       if (text) setSectionText(header.section_number, text);
     });
     if (headers.length > 0) {
-      activeSection = headers[0].section_number;
-      updateSectionPreview(sectionPreviewEl, state.sectionTexts.get(activeSection) || "");
+      selectHeader(headers[0], { refresh: false });
     }
     refreshHeaders();
     updateProgress(progressFill, 75);
@@ -246,6 +268,16 @@ async function handleSpecs() {
     const specs = await requestSpecs(config);
     setSpecs(specs);
     refreshSpecs();
+    const processed = new Set();
+    specs.forEach((spec) => {
+      const sectionNumber = spec.section_number || spec.section;
+      const key = sectionNumber ? String(sectionNumber) : null;
+      if (key && !processed.has(key)) {
+        processed.add(key);
+        markHeaderProcessed(key);
+      }
+    });
+    refreshHeaders();
     updateProgress(progressFill, 100);
     const duration = ((performance.now() - startTime) / 1000).toFixed(1);
     log(`Specifications extracted (${specs.length}) in ${duration}s.`);
@@ -394,6 +426,7 @@ function initialize() {
     handleExport().catch(() => undefined);
   });
 
+  refreshHeaders();
   pollHealth();
   setInterval(pollHealth, 10000);
 }
