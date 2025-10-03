@@ -24,7 +24,10 @@ class Document(SQLModel, table=True):
     )
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
-    steps: list["DocumentStep"] = Relationship(back_populates="document")
+    steps: list["DocumentStep"] = Relationship(
+        back_populates="document",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
 
 class DocumentStep(SQLModel, table=True):
@@ -49,4 +52,4 @@ class DocumentStep(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
-    document: Document = Relationship(back_populates="steps")
+    document: "Document" = Relationship(back_populates="steps")
