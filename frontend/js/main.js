@@ -2,9 +2,11 @@ import {
   checkHealth,
   uploadFile,
   fetchObjects,
+  fetchModelSettings,
   requestHeaders,
   requestSpecs,
   exportSpecs,
+  updateModelSettings,
 } from "./api.js";
 import {
   state,
@@ -56,6 +58,9 @@ const settingsForm = document.getElementById("settings-form");
 let selectedFile = null;
 let activeTab = "headers";
 let activeSection = null;
+let settingsSaveTimer = null;
+let allowSettingsAutosave = false;
+let lastPersistedSettings = null;
 
 function log(message) {
   addLog(message);
@@ -353,34 +358,119 @@ function setupTabs() {
 }
 
 function setupSettingsForm() {
-  function syncProviderFields(provider) {
+  const toNumber = (value, fallback) => {
+    if (value === null || value === undefined || value === "") return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const syncProviderFields = (provider) => {
     document
       .querySelectorAll(".provider-group")
       .forEach((group) => group.classList.toggle("hidden", group.dataset.provider !== provider));
-  }
+  };
+
+  const readSettingsForm = () => {
+    const formData = new FormData(settingsForm);
+    const provider = (formData.get("provider") || "openrouter").toString();
+    return {
+      provider,
+      model: (formData.get("model") || "").toString(),
+      temperature: toNumber(formData.get("temperature"), 0.2),
+      maxTokens: toNumber(formData.get("max_tokens"), 512),
+      apiKey: (formData.get("api_key") || "").toString(),
+      baseUrl: (formData.get("base_url") || "").toString(),
+    };
+  };
+
+  const toPayload = (settingsData) => ({
+    provider: settingsData.provider,
+    model: settingsData.model,
+    temperature: settingsData.temperature,
+    max_tokens: settingsData.maxTokens,
+    api_key: settingsData.apiKey || null,
+    base_url: settingsData.baseUrl || null,
+  });
+
+  const normalizeResponse = (response) => ({
+    provider: (response.provider || "openrouter").toString(),
+    model: (response.model || "").toString(),
+    temperature: typeof response.temperature === "number" ? response.temperature : 0.2,
+    maxTokens: typeof response.max_tokens === "number" ? response.max_tokens : 512,
+    apiKey: (response.api_key || "").toString(),
+    baseUrl: (response.base_url || "").toString(),
+  });
+
+  const schedulePersist = (settingsData) => {
+    if (!allowSettingsAutosave) return;
+    if (settingsSaveTimer) clearTimeout(settingsSaveTimer);
+    const payload = toPayload(settingsData);
+    settingsSaveTimer = setTimeout(async () => {
+      if (lastPersistedSettings && JSON.stringify(lastPersistedSettings) === JSON.stringify(payload)) {
+        return;
+      }
+      try {
+        const saved = await updateModelSettings(payload);
+        lastPersistedSettings = toPayload(normalizeResponse(saved));
+      } catch (error) {
+        log(`Failed to save model settings: ${error.message}`);
+      }
+    }, 500);
+  };
+
+  const applySettingsToForm = (settingsData) => {
+    allowSettingsAutosave = false;
+    const provider = settingsData.provider || "openrouter";
+    settingsForm
+      .querySelectorAll('input[name="provider"]')
+      .forEach((input) => {
+        input.checked = input.value === provider;
+      });
+    settingsForm.querySelector('input[name="model"]').value = settingsData.model || "";
+    settingsForm.querySelector('input[name="temperature"]').value = settingsData.temperature ?? 0.2;
+    settingsForm.querySelector('input[name="max_tokens"]').value = settingsData.maxTokens ?? 512;
+    settingsForm.querySelector('input[name="api_key"]').value = settingsData.apiKey || "";
+    settingsForm.querySelector('input[name="base_url"]').value = settingsData.baseUrl || "";
+    syncProviderFields(provider);
+    updateSettings(settingsData);
+    allowSettingsAutosave = true;
+  };
+
+  const handleChange = (persist = true) => {
+    const currentSettings = readSettingsForm();
+    updateSettings(currentSettings);
+    syncProviderFields(currentSettings.provider);
+    if (persist) {
+      schedulePersist(currentSettings);
+    }
+    return currentSettings;
+  };
 
   settingsForm.addEventListener("input", () => {
-    const formData = new FormData(settingsForm);
-    const provider = formData.get("provider") || "openrouter";
-    const model = (formData.get("model") || "").toString();
-    const temperature = Number(formData.get("temperature")) || 0;
-    const maxTokens = Number(formData.get("max_tokens")) || 512;
-    const apiKey = (formData.get("api_key") || "").toString();
-    const baseUrl = (formData.get("base_url") || "").toString();
-    updateSettings({ provider, model, temperature, maxTokens, apiKey, baseUrl });
-    syncProviderFields(provider);
+    handleChange(true);
   });
-  const defaultProvider = settingsForm.querySelector("input[name=provider]:checked")?.value || "openrouter";
-  syncProviderFields(defaultProvider);
-  const initialData = new FormData(settingsForm);
-  updateSettings({
-    provider: initialData.get("provider") || "openrouter",
-    model: (initialData.get("model") || "").toString(),
-    temperature: Number(initialData.get("temperature")) || 0.2,
-    maxTokens: Number(initialData.get("max_tokens")) || 512,
-    apiKey: (initialData.get("api_key") || "").toString(),
-    baseUrl: (initialData.get("base_url") || "").toString(),
+  settingsForm.addEventListener("change", () => {
+    handleChange(true);
   });
+  settingsForm.addEventListener("submit", (event) => event.preventDefault());
+
+  const initialSettings = handleChange(false);
+  lastPersistedSettings = toPayload(initialSettings);
+
+  const loadPersistedSettings = async () => {
+    try {
+      const response = await fetchModelSettings();
+      const persisted = normalizeResponse(response);
+      applySettingsToForm(persisted);
+      lastPersistedSettings = toPayload(persisted);
+    } catch (error) {
+      log(`Failed to load saved model settings: ${error.message}`);
+    } finally {
+      allowSettingsAutosave = true;
+    }
+  };
+
+  loadPersistedSettings().catch(() => undefined);
 }
 
 function setupSearchControls() {
