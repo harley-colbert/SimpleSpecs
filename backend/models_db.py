@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from sqlmodel import Field, SQLModel
 
+from backend.constants import MAX_TOKENS_LIMIT
+
 
 class ModelSettingsBase(SQLModel):
     """Shared fields for model settings records."""
@@ -11,7 +13,7 @@ class ModelSettingsBase(SQLModel):
     provider: str = Field(default="openrouter", max_length=50)
     model: str = Field(default="", max_length=255)
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=20000, ge=16, le=32768)
+    max_tokens: int = Field(default=MAX_TOKENS_LIMIT, ge=16, le=32768)
     api_key: str | None = Field(default=None, max_length=512)
     base_url: str | None = Field(default=None, max_length=512)
 

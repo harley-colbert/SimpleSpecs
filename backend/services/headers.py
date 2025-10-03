@@ -8,6 +8,8 @@ from typing import Iterator, Optional, Sequence
 
 import httpx
 
+from ..constants import MAX_TOKENS_LIMIT
+
 from ..config import Settings, get_settings
 from ..models import ParsedObject, SectionNode, SectionSpan
 from .llm_client import LLMAdapter
@@ -284,7 +286,7 @@ class _OpenRouterAdapter:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.0,
-            "max_tokens": 20000,
+            "max_tokens": MAX_TOKENS_LIMIT,
         }
         try:
             response = httpx.post(
@@ -318,7 +320,7 @@ class _LlamaCppAdapter:
                 json={
                     "prompt": prompt,
                     "temperature": 0.0,
-                    "max_tokens": 20000,
+                    "max_tokens": MAX_TOKENS_LIMIT,
                 },
                 timeout=10.0,
             )
