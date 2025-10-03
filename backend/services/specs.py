@@ -172,6 +172,7 @@ def extract_specs_for_sections(
     order_index = {obj.object_id: idx for idx, obj in enumerate(ordered_objects)}
 
     specs: list[SpecItem] = []
+    seen_pairs: set[tuple[tuple[str, ...], str]] = set()
 
     leaves = list(_iter_leaves(root))
     fallback_map = _build_fallback_mapping(leaves, chunk_map, ordered_objects, order_index)
@@ -212,6 +213,10 @@ def extract_specs_for_sections(
                 continue
             spec_id_seed = f"{file_id}|{section.section_id}|{index}|{spec_text}"
             spec_id = hashlib.sha1(spec_id_seed.encode("utf-8")).hexdigest()
+            dedup_key = (tuple(sorted_ids), spec_text.lower())
+            if dedup_key in seen_pairs:
+                continue
+            seen_pairs.add(dedup_key)
             specs.append(
                 SpecItem(
                     spec_id=spec_id,
