@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from sqlalchemy import JSON, UniqueConstraint
+from sqlalchemy.orm import Mapped
 from sqlmodel import Column, Field, Relationship, SQLModel
 
 
@@ -24,7 +25,7 @@ class Document(SQLModel, table=True):
     )
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
-    steps: list["DocumentStep"] = Relationship(
+    steps: Mapped[list["DocumentStep"]] = Relationship(
         back_populates="document",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
@@ -52,4 +53,4 @@ class DocumentStep(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
-    document: "Document" = Relationship(back_populates="steps")
+    document: Mapped["Document"] = Relationship(back_populates="steps")
