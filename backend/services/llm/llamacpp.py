@@ -16,12 +16,26 @@ class LlamaCPPProvider(LLMProvider):
     async def _chat(self, messages: List[dict[str, str]]) -> str:
         payload: dict[str, Any] = {"model": self.model, "messages": messages}
         payload.update(self.params)
-        url = f"{self.base_url}/v1/chat/completions"
+        payload.setdefault("stream", False)
+
+        default_path = "/v1/chat/completions"
+        if self.base_url.endswith(default_path) or self.base_url.endswith("/api/chat"):
+            url = self.base_url
+        else:
+            url = f"{self.base_url}{default_path}"
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(url, json=payload)
         response.raise_for_status()
         data = response.json()
         try:
-            return data["choices"][0]["message"]["content"].strip()
-        except (KeyError, IndexError, TypeError) as exc:  # noqa: PERF203 - explicit handling
-            raise RuntimeError(f"Unexpected response structure: {data}") from exc
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            message = data.get("message") if isinstance(data, dict) else None
+            if isinstance(message, dict):
+                content = message.get("content")
+            else:
+                content = None
+
+        if isinstance(content, str):
+            return content.strip()
+        raise RuntimeError(f"Unexpected response structure: {data}")
