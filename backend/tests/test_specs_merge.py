@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,74 +41,79 @@ def _build_section(section_id: str, file_id: str, title: str, number: str | None
     )
 
 
-def test_dedup_and_merge(tmp_path, monkeypatch) -> None:
+def test_dedup_and_merge() -> None:
     """Specs with identical provenance are deduplicated while unique items persist."""
 
-    artifacts_dir = tmp_path / "artifacts"
-    monkeypatch.setenv("SIMPLS_ARTIFACTS_DIR", str(artifacts_dir))
-    get_settings.cache_clear()
+    original = os.environ.get("SIMPLS_ARTIFACTS_DIR")
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        artifacts_dir = Path(tmp_dir) / "artifacts"
+        os.environ["SIMPLS_ARTIFACTS_DIR"] = str(artifacts_dir)
+        get_settings.cache_clear()
 
-    file_id = "file-123"
-    chunks_dir = artifacts_dir / file_id / "chunks"
-    chunks_dir.mkdir(parents=True)
-    chunk_map = {"sec-1": ["obj-1", "obj-2"], "sec-2": ["obj-1", "obj-2"]}
-    (chunks_dir / "chunks.json").write_text(json.dumps(chunk_map))
+        file_id = "file-123"
+        chunks_dir = artifacts_dir / file_id / "chunks"
+        chunks_dir.mkdir(parents=True, exist_ok=True)
+        chunk_map = {"sec-1": ["obj-1", "obj-2"], "sec-2": ["obj-1", "obj-2"]}
+        (chunks_dir / "chunks.json").write_text(json.dumps(chunk_map))
 
-    objects = [
-        ParsedObject(
-            object_id="obj-1",
-            file_id=file_id,
-            kind="text",
-            text="- Maximum load 500 N",
-            page_index=0,
-            order_index=0,
-        ),
-        ParsedObject(
-            object_id="obj-2",
-            file_id=file_id,
-            kind="text",
-            text="- Allowable stress per ASTM A36",
-            page_index=0,
-            order_index=1,
-        ),
-    ]
-
-    root = SectionNode(
-        section_id="root",
-        file_id=file_id,
-        number=None,
-        title="Root",
-        depth=0,
-        children=[
-            _build_section("sec-1", file_id, "Specifications", "1"),
-            _build_section("sec-2", file_id, "More Specifications", "2"),
-        ],
-    )
-
-    adapter = _DeterministicAdapter(
-        [
-            "- Maximum load 500 N\n- Maximum load 500 N",
-            "- Maximum load 500 N\n- Allowable stress per ASTM A36",
+        objects = [
+            ParsedObject(
+                object_id="obj-1",
+                file_id=file_id,
+                kind="text",
+                text="- Maximum load 500 N",
+                page_index=0,
+                order_index=0,
+            ),
+            ParsedObject(
+                object_id="obj-2",
+                file_id=file_id,
+                kind="text",
+                text="- Allowable stress per ASTM A36",
+                page_index=0,
+                order_index=1,
+            ),
         ]
-    )
 
-    specs = extract_specs_for_sections(file_id, root, objects, adapter)
+        root = SectionNode(
+            section_id="root",
+            file_id=file_id,
+            number=None,
+            title="Root",
+            depth=0,
+            children=[
+                _build_section("sec-1", file_id, "Specifications", "1"),
+                _build_section("sec-2", file_id, "More Specifications", "2"),
+            ],
+        )
 
-    assert [item.spec_text for item in specs] == [
-        "Maximum load 500 N",
-        "Allowable stress per ASTM A36",
-    ]
-    assert specs[0].section_id == "sec-1"
-    assert specs[1].section_id == "sec-2"
-    for item in specs:
-        assert item.source_object_ids == ["obj-1", "obj-2"]
+        adapter = _DeterministicAdapter(
+            [
+                "- Maximum load 500 N\n- Maximum load 500 N",
+                "- Maximum load 500 N\n- Allowable stress per ASTM A36",
+            ]
+        )
 
-    persisted = Path(artifacts_dir / file_id / "specs" / "specs.json")
-    assert persisted.exists()
-    payload = json.loads(persisted.read_text())
-    assert [entry["spec_text"] for entry in payload] == [
-        "Maximum load 500 N",
-        "Allowable stress per ASTM A36",
-    ]
+        specs = extract_specs_for_sections(file_id, root, objects, adapter)
 
+        assert [item.spec_text for item in specs] == [
+            "Maximum load 500 N",
+            "Allowable stress per ASTM A36",
+        ]
+        assert specs[0].section_id == "sec-1"
+        assert specs[1].section_id == "sec-2"
+        for item in specs:
+            assert item.source_object_ids == ["obj-1", "obj-2"]
+
+        persisted = artifacts_dir / file_id / "specs" / "specs.json"
+        assert persisted.exists()
+        payload = json.loads(persisted.read_text())
+        assert [entry["spec_text"] for entry in payload] == [
+            "Maximum load 500 N",
+            "Allowable stress per ASTM A36",
+        ]
+    if original is None:
+        os.environ.pop("SIMPLS_ARTIFACTS_DIR", None)
+    else:
+        os.environ["SIMPLS_ARTIFACTS_DIR"] = original
     get_settings.cache_clear()

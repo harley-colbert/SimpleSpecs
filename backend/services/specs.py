@@ -161,11 +161,10 @@ def extract_specs_for_sections(
     root: SectionNode,
     objects: list[ParsedObject],
     adapter: LLMAdapter,
-    settings: Settings | None = None,
 ) -> list[SpecItem]:
     """Iterate document leaves, run the adapter, and persist specs."""
 
-    settings = settings or get_settings()
+    settings = get_settings()
     chunk_map = _load_chunks(file_id, settings)
     indexed_objects = {obj.object_id: obj for obj in objects}
     ordered_objects = _sorted_objects(objects)
