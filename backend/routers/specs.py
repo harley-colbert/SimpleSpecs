@@ -1,119 +1,103 @@
-"""Specification extraction routes."""
+"""Specifications extraction endpoints."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import re
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException
 
-from ..config import get_settings
-from ..models import ParsedObject, SectionNode, SpecItem
-from ..services.llm_client import LlamaCppAdapter, OpenRouterAdapter
-from ..services.specs import extract_specs_for_sections
+from ..models import HeaderItem, SpecItem, SpecsRequest
+from ..services.llm import get_provider
+from ..services.text_blocks import document_lines, section_text
+from ..store import (
+    headers_path,
+    read_json,
+    read_jsonl,
+    specs_path,
+    upload_objects_path,
+    write_json,
+)
 
-specs_router = APIRouter(prefix="/specs", tags=["specs"])
+router = APIRouter(prefix="/api")
 
+_SPEC_PROMPT_TEMPLATE = """You are extracting mechanical engineering specifications from a single section of a document.
 
-def _load_parsed_objects(file_id: str) -> list[ParsedObject]:
-    settings = get_settings()
-    target = Path(settings.ARTIFACTS_DIR) / file_id / "parsed" / "objects.json"
-    if not target.exists():
-        raise FileNotFoundError("parsed_missing")
-    with target.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    return [ParsedObject.model_validate(item) for item in data]
+Section number: {section_number}
+Section name: {section_name}
 
+Section text:
+{section_text}
 
-def _load_sections(file_id: str) -> SectionNode:
-    settings = get_settings()
-    target = Path(settings.ARTIFACTS_DIR) / file_id / "headers" / "sections.json"
-    if not target.exists():
-        raise FileNotFoundError("sections_missing")
-    with target.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    return SectionNode.model_validate(data)
+Task: List ONLY the exact specification statements in this section that define requirements (methods, processes, specific parts, materials, tolerances, ratings, standards, environmental constraints, duty cycles, etc.). Return each specification as its original text (verbatim), one per line. If none, return "NONE".
 
-
-def _load_persisted_specs(file_id: str) -> list[SpecItem]:
-    settings = get_settings()
-    target = Path(settings.ARTIFACTS_DIR) / file_id / "specs" / "specs.json"
-    if not target.exists():
-        raise FileNotFoundError("specs_missing")
-    with target.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    return [SpecItem.model_validate(item) for item in payload]
+Output format (fenced):
+#specs#
+- <spec 1>
+- <spec 2>
+#specs#
+"""
 
 
-def _select_adapter(name: str | None):
-    if name is None or name.lower() == "openrouter":
-        return OpenRouterAdapter()
-    if name.lower() == "llamacpp":
-        return LlamaCppAdapter()
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Unsupported llm adapter.",
+@router.post("/specs", response_model=list[SpecItem])
+async def extract_specs(payload: SpecsRequest) -> List[SpecItem]:
+    raw_objects = read_jsonl(upload_objects_path(payload.upload_id))
+    if not raw_objects:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found")
+
+    headers_raw = read_json(headers_path(payload.upload_id))
+    if not headers_raw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Headers must be extracted before specifications",
+        )
+
+    headers = [HeaderItem.model_validate(item) for item in headers_raw]
+    lines = document_lines(raw_objects)
+    provider = get_provider(
+        payload.provider,
+        model=payload.model,
+        params=payload.params,
+        api_key=payload.api_key,
+        base_url=payload.base_url,
     )
 
+    specs: list[SpecItem] = []
+    for header in headers:
+        text = section_text(lines, headers, header)
+        prompt = _SPEC_PROMPT_TEMPLATE.format(
+            section_number=header.section_number,
+            section_name=header.section_name,
+            section_text=text or "No additional text found for this section.",
+        )
+        messages = [
+            {"role": "system", "content": "You extract mechanical engineering specifications."},
+            {"role": "user", "content": prompt},
+        ]
+        response_text = await provider.chat(messages)
+        match = re.search(r"#specs#(.*?)#specs#", response_text, re.DOTALL | re.IGNORECASE)
+        if not match:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"LLM returned unexpected format for section {header.section_number}",
+            )
+        block = match.group(1).strip()
+        if not block or block.strip().upper() == "NONE":
+            continue
+        for raw_line in block.splitlines():
+            line = raw_line.strip()
+            if not line or line.upper() == "NONE":
+                continue
+            if line.startswith("-"):
+                line = line[1:].strip()
+            if not line:
+                continue
+            specs.append(
+                SpecItem(
+                    section_number=header.section_number,
+                    section_name=header.section_name,
+                    specification=line,
+                )
+            )
 
-@specs_router.post("/{file_id}/find", response_model=List[SpecItem])
-def find_spec_items(file_id: str, llm: str | None = Query(default=None)) -> List[SpecItem]:
-    """Run spec extraction for the requested file and persist results."""
-
-    adapter = _select_adapter(llm)
-    try:
-        objects = _load_parsed_objects(file_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Parsed objects not found.",
-        ) from exc
-    try:
-        sections = _load_sections(file_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Header sections not found. Run phase 2.",
-        ) from exc
-    try:
-        return extract_specs_for_sections(file_id, sections, objects, adapter)
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Section chunks not found. Run phase 3.",
-        ) from exc
-
-
-@specs_router.get("/{file_id}", response_model=List[SpecItem])
-def get_spec_items(file_id: str) -> List[SpecItem]:
-    """Return persisted specification items for the file."""
-
-    try:
-        return _load_persisted_specs(file_id)
-    except FileNotFoundError:
-        pass
-
-    try:
-        objects = _load_parsed_objects(file_id)
-        sections = _load_sections(file_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Specs not found.",
-        ) from exc
-
-    try:
-        extract_specs_for_sections(file_id, sections, objects, OpenRouterAdapter())
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Specs not found.",
-        ) from exc
-
-    try:
-        return _load_persisted_specs(file_id)
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Specs not found.",
-        ) from exc
+    write_json(specs_path(payload.upload_id), [spec.model_dump() for spec in specs])
+    return specs
