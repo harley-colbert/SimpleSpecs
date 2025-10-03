@@ -1,5 +1,27 @@
 const JSON_HEADERS = { Accept: "application/json" };
 
+const BACKEND_ORIGIN = (() => {
+  if (typeof window === "undefined") return "";
+  if (window.__SIMPLESPECS_BACKEND_ORIGIN__) {
+    return String(window.__SIMPLESPECS_BACKEND_ORIGIN__);
+  }
+  const { protocol, hostname, port } = window.location;
+  if (!port || port === "8000") {
+    return "";
+  }
+  return `${protocol}//${hostname}:8000`;
+})();
+
+function resolveUrl(pathOrUrl) {
+  if (/^https?:\/\//i.test(pathOrUrl)) {
+    return pathOrUrl;
+  }
+  if (!BACKEND_ORIGIN) {
+    return pathOrUrl;
+  }
+  return new URL(pathOrUrl, BACKEND_ORIGIN).toString();
+}
+
 async function handleResponse(response) {
   const contentType = response.headers.get("content-type") || "";
   if (!response.ok) {
@@ -24,13 +46,13 @@ async function handleResponse(response) {
 }
 
 async function request(url, options = {}) {
-  const response = await fetch(url, options);
+  const resolvedUrl = resolveUrl(url);
+  const response = await fetch(resolvedUrl, options);
   return handleResponse(response);
 }
 
 export async function checkHealth() {
-  const response = await fetch("/healthz", { headers: JSON_HEADERS });
-  return handleResponse(response);
+  return request("/healthz", { headers: JSON_HEADERS });
 }
 
 export async function uploadFile(file) {
