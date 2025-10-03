@@ -44,8 +44,11 @@ def test_parse_docx(tmp_path: Path) -> None:
 
 
 def test_parse_pdf(tmp_path: Path) -> None:
-    from reportlab.lib.pagesizes import letter
-    from reportlab.pdfgen import canvas
+    import pytest
+
+    reportlab = pytest.importorskip("reportlab")
+    letter = reportlab.lib.pagesizes.letter  # type: ignore[attr-defined]
+    canvas = reportlab.pdfgen.canvas  # type: ignore[attr-defined]
 
     sample = tmp_path / "sample.pdf"
     c = canvas.Canvas(str(sample), pagesize=letter)
