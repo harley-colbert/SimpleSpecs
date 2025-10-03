@@ -13,21 +13,11 @@ app = FastAPI(title="SimpleSpecs", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    """Initialise database tables when the application starts."""
-
-    from .db import init_db
-
-    init_db()
 
 app.include_router(health.router)
 app.include_router(upload.router)

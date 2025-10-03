@@ -7,9 +7,16 @@ from typing import List
 from fastapi import APIRouter, HTTPException
 
 from ..models import HeaderItem, SpecItem, SpecsRequest
-from ..services.documents import get_document_or_404, get_step, upsert_step
 from ..services.llm import get_provider
 from ..services.text_blocks import document_lines, section_text
+from ..store import (
+    headers_path,
+    read_json,
+    read_jsonl,
+    specs_path,
+    upload_objects_path,
+    write_json,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -33,31 +40,18 @@ Output format (fenced):
 
 @router.post("/specs", response_model=list[SpecItem])
 async def extract_specs(payload: SpecsRequest) -> List[SpecItem]:
-    document = get_document_or_404(payload.upload_id)
-    raw_objects = document.parsed_objects or []
+    raw_objects = read_jsonl(upload_objects_path(payload.upload_id))
     if not raw_objects:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found")
 
-    existing_step = get_step(payload.upload_id, "specs")
-    if (
-        existing_step
-        and existing_step.status == "completed"
-        and existing_step.result is not None
-    ):
-        return [SpecItem.model_validate(item) for item in existing_step.result]
-
-    headers_step = get_step(payload.upload_id, "headers")
-    if (
-        not headers_step
-        or headers_step.status != "completed"
-        or headers_step.result is None
-    ):
+    headers_raw = read_json(headers_path(payload.upload_id))
+    if not headers_raw:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Headers must be extracted before specifications",
         )
 
-    headers = [HeaderItem.model_validate(item) for item in headers_step.result]
+    headers = [HeaderItem.model_validate(item) for item in headers_raw]
     lines = document_lines(raw_objects)
     provider = get_provider(
         payload.provider,
@@ -105,14 +99,5 @@ async def extract_specs(payload: SpecsRequest) -> List[SpecItem]:
                 )
             )
 
-    upsert_step(
-        payload.upload_id,
-        name="specs",
-        result=[spec.model_dump() for spec in specs],
-        provider=payload.provider,
-        model=payload.model,
-        params=payload.params,
-        base_url=payload.base_url,
-        api_key_used=bool(payload.api_key),
-    )
+    write_json(specs_path(payload.upload_id), [spec.model_dump() for spec in specs])
     return specs

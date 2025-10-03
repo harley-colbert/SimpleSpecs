@@ -1,7 +1,6 @@
 """Upload and parsed object retrieval endpoints."""
 from __future__ import annotations
 
-import hashlib
 import os
 import uuid
 from pathlib import Path
@@ -9,8 +8,8 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 
 from ..models import ObjectsResponse, ParsedObject, UploadResponse
-from ..services.documents import create_document, get_document, get_document_by_hash
 from ..services.parsing import parse_document
+from ..store import read_jsonl, upload_objects_path, write_jsonl
 
 router = APIRouter(prefix="/api")
 
@@ -34,27 +33,15 @@ async def upload(file: UploadFile = File(...)) -> UploadResponse:
     temp_dir.mkdir(parents=True, exist_ok=True)
     temp_path = temp_dir / f"upload_{uuid.uuid4().hex}{extension}"
 
-    digest = hashlib.sha256()
-
     try:
         with temp_path.open("wb") as buffer:
             while chunk := await file.read(1024 * 1024):
                 buffer.write(chunk)
-                digest.update(chunk)
-
-        file_hash = digest.hexdigest()
-        existing = get_document_by_hash(file_hash)
-        if existing:
-            return UploadResponse(upload_id=existing.upload_id, object_count=existing.object_count)
 
         parsed_objects = parse_document(temp_path)
         upload_id = uuid.uuid4().hex
-        create_document(
-            upload_id=upload_id,
-            filename=filename,
-            file_hash=file_hash,
-            parsed_objects=parsed_objects,
-        )
+        jsonl_path = upload_objects_path(upload_id)
+        write_jsonl(jsonl_path, parsed_objects)
         return UploadResponse(upload_id=upload_id, object_count=len(parsed_objects))
     finally:
         try:
@@ -72,11 +59,10 @@ async def get_objects(
 ) -> ObjectsResponse:
     """Return paginated parsed objects for a previous upload."""
 
-    document = get_document(upload_id)
-    if not document:
+    path = upload_objects_path(upload_id)
+    if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found")
-
-    raw_objects = document.parsed_objects or []
+    raw_objects = read_jsonl(path)
     objects = [ParsedObject.model_validate(obj) for obj in raw_objects]
 
     total = len(objects)
