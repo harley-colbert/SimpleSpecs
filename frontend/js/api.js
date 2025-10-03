@@ -69,6 +69,18 @@ export async function fetchObjects(uploadId, page = 1, pageSize = 500) {
   return request(`/api/objects?${params.toString()}`, { headers: JSON_HEADERS });
 }
 
+export async function fetchModelSettings() {
+  return request("/api/settings", { headers: JSON_HEADERS });
+}
+
+export async function updateModelSettings(payload) {
+  return request("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...JSON_HEADERS },
+    body: JSON.stringify(payload),
+  });
+}
+
 function buildPayload({ uploadId, provider, model, params, apiKey, baseUrl }) {
   const payload = {
     upload_id: uploadId,
